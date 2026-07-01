@@ -1,0 +1,1063 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  ShieldCheck, AlertTriangle, ClipboardList, FileSignature, 
+  BookOpen, MessageSquare, Info, Home, Plus, CheckCircle, 
+  XCircle, Send, Bot, User, Activity, FileText, ChevronRight,
+  TrendingUp, AlertCircle, Crosshair, FileSearch, Layers, Loader2
+} from 'lucide-react';
+import { 
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
+  Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area
+} from 'recharts';
+
+const DASHBOARD_DATA = {
+  incidentTrend: [
+    { month: 'Jan', nearMiss: 4, lti: 0, firstAid: 2, trir: 1.2 },
+    { month: 'Feb', nearMiss: 3, lti: 1, firstAid: 1, trir: 2.1 },
+    { month: 'Mar', nearMiss: 6, lti: 0, firstAid: 3, trir: 1.8 },
+    { month: 'Apr', nearMiss: 2, lti: 0, firstAid: 0, trir: 1.5 },
+    { month: 'May', nearMiss: 5, lti: 0, firstAid: 2, trir: 1.3 },
+    { month: 'Jun', nearMiss: 1, lti: 0, firstAid: 1, trir: 1.1 },
+  ],
+  auditCompliance: [
+    { name: 'Compliant', value: 88 },
+    { name: 'Minor Non-Conformance', value: 9 },
+    { name: 'Major Non-Conformance', value: 3 },
+  ]
+};
+
+const COLORS = ['#10b981', '#f59e0b', '#ef4444'];
+
+const EXPERT_CHECKLISTS = {
+  'General Site Safety': [
+    'Are all workers wearing mandatory minimum PPE (Hard hat, safety glasses, steel-toe boots, hi-vis vest)?',
+    'Are pedestrian walkways clearly segregated from vehicle traffic with hard barricades?',
+    'Is housekeeping maintained to prevent slip, trip, and fall hazards?',
+    'Are emergency assembly points clearly marked, accessible, and well-lit?'
+  ],
+  'Work at Height': [
+    'Is scaffolding erected by a competent person and green-tagged (inspected in last 7 days)?',
+    'Are full-body harnesses inspected before use and tied off 100% of the time above 1.8m?',
+    'Are edge protections (guardrails, mid-rails, toe boards) secure and complete?',
+    'Are ladders tied off at the top, placed at a 4:1 angle, and extending 1m above the landing?'
+  ],
+  'Fire Safety & Hot Work': [
+    'Are fire extinguishers inspected monthly, tagged, fully charged, and easily accessible?',
+    'Are combustible materials removed at least 11m (35ft) from hot work areas?',
+    'Is a dedicated, trained fire watch assigned for the duration of hot work + 30 mins after?',
+    'Are gas cylinders stored upright, secured with chains, and segregated (Oxygen vs. Acetylene by 6m or fire wall)?'
+  ]
+};
+
+const GuidanceTooltip = ({ text, title = "Expert Guidance" }) => {
+  const [isVisible, setIsVisible] = useState(false);
+
+  return (
+    <div className="relative inline-flex items-center ml-2" 
+         onMouseEnter={() => setIsVisible(true)} 
+         onMouseLeave={() => setIsVisible(false)}>
+      <Info size={16} className="text-indigo-400 cursor-help hover:text-indigo-600 transition-colors" />
+      {isVisible && (
+        <div className="absolute left-full ml-2 w-72 p-4 bg-slate-900 text-white text-sm rounded-xl shadow-2xl z-50 animate-fadeIn border border-slate-700">
+          <strong className="block text-indigo-300 mb-2 flex items-center gap-2 border-b border-slate-700 pb-2">
+            <ShieldCheck size={16} /> {title}
+          </strong>
+          <p className="leading-relaxed text-slate-200">{text}</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const FieldWithGuidance = ({ label, guidance, children }) => (
+  <div className="mb-5">
+    <div className="flex items-center mb-1.5">
+      <label className="block text-sm font-semibold text-slate-700">{label}</label>
+      <GuidanceTooltip text={guidance} />
+    </div>
+    {children}
+  </div>
+);
+
+const Badge = ({ children, type = 'info' }) => {
+  const styles = {
+    success: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    warning: 'bg-amber-100 text-amber-800 border-amber-200',
+    danger: 'bg-red-100 text-red-800 border-red-200',
+    info: 'bg-blue-100 text-blue-800 border-blue-200',
+    purple: 'bg-purple-100 text-purple-800 border-purple-200',
+  };
+  return (
+    <span className={`px-2.5 py-1 rounded-md text-xs font-bold border ${styles[type]} uppercase tracking-wider`}>
+      {children}
+    </span>
+  );
+};
+
+export default function HSEManagerApp() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
+  // Global State for App Data
+  const [audits, setAudits] = useState([]);
+  const [incidents, setIncidents] = useState([]);
+  const [permits, setPermits] = useState([]);
+  const [jsas, setJsas] = useState([]); // Job Safety Analysis
+
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden selection:bg-indigo-200">
+      {/* Sidebar - Enhanced Enterprise Look */}
+      <aside className="w-72 bg-gradient-to-b from-slate-900 to-slate-950 text-white flex flex-col transition-all duration-300 z-20 shadow-2xl border-r border-slate-800">
+        <div className="p-6 flex items-center gap-3 border-b border-slate-800 bg-slate-900/50">
+          <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow-lg">
+            <ShieldCheck className="text-white" size={28} />
+          </div>
+          <div>
+            <h1 className="font-extrabold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">HSE Pro <span className="text-indigo-400">Max</span></h1>
+            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold mt-0.5">Safety Operating System</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 py-6 px-3 space-y-1">
+          <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Home size={20} />} label="Command Center" />
+          <NavItem active={activeTab === 'jsa'} onClick={() => setActiveTab('jsa')} icon={<Layers size={20} />} label="Risk Assessment (JSA)" />
+          <NavItem active={activeTab === 'ptw'} onClick={() => setActiveTab('ptw')} icon={<FileSignature size={20} />} label="Permit to Work (PTW)" />
+          <NavItem active={activeTab === 'audits'} onClick={() => setActiveTab('audits')} icon={<ClipboardList size={20} />} label="Audits & Inspections" />
+          <NavItem active={activeTab === 'incidents'} onClick={() => setActiveTab('incidents')} icon={<AlertTriangle size={20} />} label="Incident Management" />
+          
+          <div className="pt-6 pb-2 px-4">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Resources</p>
+          </div>
+          <NavItem active={activeTab === 'guidance'} onClick={() => setActiveTab('guidance')} icon={<BookOpen size={20} />} label="Master Guidance" />
+        </nav>
+
+        <div className="p-5 border-t border-slate-800 bg-slate-900/50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center font-bold shadow-inner ring-2 ring-slate-800">SP</div>
+            <div>
+              <p className="font-semibold text-sm">Safety Professional</p>
+              <p className="text-xs text-indigo-400 font-medium">Regional HSE Director</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-50/50">
+        <header className="bg-white/80 backdrop-blur-md h-16 border-b border-slate-200 flex items-center justify-between px-8 shadow-sm z-10 sticky top-0">
+          <h2 className="text-xl font-bold text-slate-800 capitalize flex items-center gap-3">
+            {activeTab.replace('-', ' ')}
+            <GuidanceTooltip 
+              title={`Module: ${activeTab.toUpperCase()}`}
+              text="Ensure all data entered is accurate and objective. This system serves as a legal record of safety compliance and due diligence." 
+            />
+          </h2>
+          <div className="flex items-center gap-6">
+            <div className="hidden md:flex items-center gap-2 text-sm font-semibold text-emerald-700 bg-emerald-50 px-4 py-1.5 rounded-full border border-emerald-200 shadow-sm">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              Site Status: Operational
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="max-w-7xl mx-auto">
+            {activeTab === 'dashboard' && <DashboardView />}
+            {activeTab === 'jsa' && <JSAView jsas={jsas} setJsas={setJsas} />}
+            {activeTab === 'audits' && <AuditsView audits={audits} setAudits={setAudits} />}
+            {activeTab === 'incidents' && <IncidentsView incidents={incidents} setIncidents={setIncidents} />}
+            {activeTab === 'ptw' && <PTWView permits={permits} setPermits={setPermits} />}
+            {activeTab === 'guidance' && <GuidanceView />}
+          </div>
+        </div>
+      </main>
+
+      {/* AI Chatbot FAB & Window */}
+      <AIChatbot isChatOpen={isChatOpen} setIsChatOpen={setIsChatOpen} />
+    </div>
+  );
+}
+
+const NavItem = ({ active, onClick, icon, label }) => (
+  <button
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 group ${
+      active 
+        ? 'bg-indigo-600/10 text-indigo-400' 
+        : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+    }`}
+  >
+    <span className={`${active ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'} transition-colors`}>
+      {icon}
+    </span>
+    {label}
+  </button>
+);
+
+const DashboardView = () => {
+  return (
+    <div className="space-y-8 animate-fadeIn">
+      <div className="flex justify-between items-end">
+        <div>
+          <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">Command Center</h3>
+          <p className="text-slate-500 font-medium mt-1">Real-time enterprise safety intelligence.</p>
+        </div>
+        <GuidanceTooltip 
+          title="Executive Dashboard"
+          text="Monitor your TRIR (Total Recordable Incident Rate) closely. It's the standard metric for safety performance. A TRIR under 1.0 is generally considered world-class."
+        />
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <KpiCard title="TRIR (YTD)" value="1.1" subtitle="Industry Avg: 2.4" icon={<Crosshair className="text-indigo-500" />} color="border-indigo-500" trend="-0.2" />
+        <KpiCard title="Days Without LTI" value="142" subtitle="Goal: 365 Days" icon={<ShieldCheck className="text-emerald-500" />} color="border-emerald-500" />
+        <KpiCard title="High Risk Permits" value="8" subtitle="Active Hot Work/Confined" icon={<FileSignature className="text-amber-500" />} color="border-amber-500" />
+        <KpiCard title="Open Corrective Actions" value="12" subtitle="3 Critical Overdue" icon={<AlertCircle className="text-red-500" />} color="border-red-500" />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex items-center justify-between mb-6">
+            <h4 className="text-lg font-bold text-slate-800">Incident & TRIR Trends</h4>
+            <GuidanceTooltip text="Spikes in Near Misses (Blue) are actually GOOD if LTI stays zero—it means reporting culture is strong. If TRIR (Area) rises, intervention is needed." />
+          </div>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={DASHBOARD_DATA.incidentTrend}>
+                <defs>
+                  <linearGradient id="colorTrir" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" stroke="#94a3b8" axisLine={false} tickLine={false} />
+                <YAxis yAxisId="left" stroke="#94a3b8" axisLine={false} tickLine={false} />
+                <YAxis yAxisId="right" orientation="right" stroke="#6366f1" axisLine={false} tickLine={false} />
+                <RechartsTooltip contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                <Legend iconType="circle" />
+                <Area yAxisId="right" type="monotone" dataKey="trir" name="TRIR Score" stroke="#6366f1" fillOpacity={1} fill="url(#colorTrir)" />
+                <Line yAxisId="left" type="monotone" dataKey="nearMiss" name="Near Miss" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                <Line yAxisId="left" type="monotone" dataKey="firstAid" name="First Aid" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} />
+                <Line yAxisId="left" type="monotone" dataKey="lti" name="LTI" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-lg font-bold text-slate-800">Audit Compliance</h4>
+            <GuidanceTooltip text="Aim for >90% compliance. Any Major Non-Conformance requires immediate cessation of related work." />
+          </div>
+          <p className="text-3xl font-extrabold text-emerald-600 mb-6 text-center">88% <span className="text-sm text-slate-500 font-medium">Pass Rate</span></p>
+          <div className="flex-1 min-h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={DASHBOARD_DATA.auditCompliance} cx="50%" cy="50%" innerRadius={70} outerRadius={90} paddingAngle={5} dataKey="value" stroke="none">
+                  {DASHBOARD_DATA.auditCompliance.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <RechartsTooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                <Legend layout="vertical" verticalAlign="bottom" align="center" wrapperStyle={{ paddingTop: '20px' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const KpiCard = ({ title, value, subtitle, icon, color, trend }) => (
+  <div className={`bg-white p-6 rounded-2xl shadow-sm border-t-4 ${color} hover:shadow-md transition-all group`}>
+    <div className="flex justify-between items-start">
+      <div>
+        <p className="text-slate-500 text-sm font-semibold tracking-wide uppercase">{title}</p>
+        <h3 className="text-4xl font-extrabold text-slate-800 mt-2 mb-1 group-hover:scale-105 transition-transform origin-left">{value}</h3>
+      </div>
+      <div className={`p-3 rounded-xl bg-slate-50 group-hover:bg-slate-100 transition-colors`}>{icon}</div>
+    </div>
+    <div className="flex items-center gap-2 mt-3">
+      {trend && (
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${parseFloat(trend) < 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+          {trend}
+        </span>
+      )}
+      <p className="text-xs text-slate-400 font-medium">{subtitle}</p>
+    </div>
+  </div>
+);
+
+const JSAView = ({ jsas, setJsas }) => {
+  const [showForm, setShowForm] = useState(false);
+
+  return (
+    <div className="animate-fadeIn">
+      {!showForm ? (
+        <>
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">Job Safety Analysis (JSA)</h3>
+              <p className="text-slate-500 font-medium mt-1">Identify hazards and establish controls before work begins.</p>
+            </div>
+            <button 
+              onClick={() => setShowForm(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-200 flex items-center gap-2 font-semibold transition-all hover:-translate-y-0.5"
+            >
+              <Plus size={20} /> Create JSA
+              <GuidanceTooltip text="JSA/TRA is a legal requirement for non-routine tasks. Break the task into steps, identify hazards for each step, and apply the Hierarchy of Controls." title="Risk Assessment" />
+            </button>
+          </div>
+
+          {jsas.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300 shadow-sm">
+              <Layers className="mx-auto text-slate-300 mb-4" size={56} />
+              <h4 className="text-xl font-bold text-slate-700">No Risk Assessments Found</h4>
+              <p className="text-slate-500 mt-2 max-w-md mx-auto">Proactive safety starts here. Create a JSA before approving high-risk permits.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {jsas.map((jsa, idx) => (
+                <div key={idx} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <Badge type="purple">JSA-{String(idx + 1).padStart(3, '0')}</Badge>
+                      <h4 className="font-bold text-lg text-slate-800 mt-2">{jsa.taskName}</h4>
+                    </div>
+                    <Badge type={jsa.residualRisk === 'Low' ? 'success' : 'warning'}>Res. Risk: {jsa.residualRisk}</Badge>
+                  </div>
+                  <p className="text-sm text-slate-600 mb-4"><span className="font-semibold">Location:</span> {jsa.location} | <span className="font-semibold">Date:</span> {jsa.date}</p>
+                  
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                    <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Key Controls Implemented</h5>
+                    <ul className="list-disc pl-4 text-sm text-slate-700 space-y-1">
+                      {jsa.controls.split('\n').map((c, i) => c.trim() && <li key={i}>{c}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <NewJSAForm onSave={(jsa) => { setJsas([jsa, ...jsas]); setShowForm(false); }} onCancel={() => setShowForm(false)} />
+      )}
+    </div>
+  );
+};
+
+const NewJSAForm = ({ onSave, onCancel }) => {
+  const [formData, setFormData] = useState({
+    taskName: '', location: '', hazards: '', controls: '', residualRisk: 'Low'
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave({ ...formData, date: new Date().toLocaleDateString() });
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-200 max-w-3xl mx-auto">
+      <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+        <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <Layers className="text-indigo-600" /> New Job Safety Analysis
+        </h3>
+        <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors"><XCircle size={20} /></button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-2 gap-6">
+          <FieldWithGuidance label="Task Description" guidance="What is the specific job to be done? e.g., 'Erecting scaffold on north facade'.">
+            <input required type="text" onChange={e => setFormData({...formData, taskName: e.target.value})} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Enter task name" />
+          </FieldWithGuidance>
+          <FieldWithGuidance label="Location" guidance="Specific work area.">
+            <input required type="text" onChange={e => setFormData({...formData, location: e.target.value})} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Enter location" />
+          </FieldWithGuidance>
+        </div>
+
+        <FieldWithGuidance label="Potential Hazards" guidance="What could go wrong? Think about gravity, motion, chemical, electrical, and pressure hazards.">
+          <textarea required rows="3" onChange={e => setFormData({...formData, hazards: e.target.value})} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="List identified hazards..."></textarea>
+        </FieldWithGuidance>
+
+        <FieldWithGuidance label="Risk Controls (Hierarchy of Controls)" guidance="Apply controls: 1. Eliminate 2. Substitute 3. Engineering (Guards) 4. Administrative (Training/Procedures) 5. PPE.">
+          <textarea required rows="4" onChange={e => setFormData({...formData, controls: e.target.value})} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono text-sm" placeholder="- Control 1&#10;- Control 2"></textarea>
+        </FieldWithGuidance>
+
+        <FieldWithGuidance label="Residual Risk" guidance="After applying controls, what is the remaining risk? If it's High, the job CANNOT proceed.">
+          <select onChange={e => setFormData({...formData, residualRisk: e.target.value})} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all">
+            <option value="Low">Low (Acceptable)</option>
+            <option value="Medium">Medium (ALARP - Needs Mgmt Approval)</option>
+            <option value="High">High (Unacceptable - Stop Work)</option>
+          </select>
+        </FieldWithGuidance>
+
+        <div className="flex justify-end gap-4 pt-6 border-t border-slate-100">
+          <button type="button" onClick={onCancel} className="px-6 py-2.5 text-slate-600 font-semibold hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
+          <button type="submit" className="px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-all flex items-center gap-2">
+            Approve JSA <CheckCircle size={18} />
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+
+const AuditsView = ({ audits, setAudits }) => {
+  const [showNew, setShowNew] = useState(false);
+  
+  return (
+    <div className="animate-fadeIn">
+      {!showNew ? (
+        <>
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">Audit & Inspections</h3>
+              <p className="text-slate-500 font-medium mt-1">Proactive hazard identification and compliance tracking.</p>
+            </div>
+            <button 
+              onClick={() => setShowNew(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-blue-200 flex items-center gap-2 font-semibold transition-all hover:-translate-y-0.5"
+            >
+              <Plus size={20} /> New Audit
+              <GuidanceTooltip text="Regular site inspections are the backbone of preventing incidents before they occur. Conduct them weekly." title="Initiate Audit" />
+            </button>
+          </div>
+
+          {audits.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300 shadow-sm">
+              <ClipboardList className="mx-auto text-slate-300 mb-4" size={56} />
+              <h4 className="text-xl font-bold text-slate-700">No Audits Conducted Yet</h4>
+              <p className="text-slate-500 mt-2">Start your proactive safety program by creating your first audit.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
+                    <th className="p-5 font-bold">Audit Type</th>
+                    <th className="p-5 font-bold">Location</th>
+                    <th className="p-5 font-bold">Date</th>
+                    <th className="p-5 font-bold">Score</th>
+                    <th className="p-5 font-bold">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {audits.map((audit, idx) => (
+                    <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                      <td className="p-5 font-bold text-slate-800">{audit.type}</td>
+                      <td className="p-5 text-slate-600 font-medium">{audit.location}</td>
+                      <td className="p-5 text-slate-500">{audit.date}</td>
+                      <td className="p-5">
+                        <div className="flex items-center gap-3">
+                          <span className={`px-2.5 py-1 rounded-md font-bold ${audit.score >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {audit.score}%
+                          </span>
+                          <div className="w-24 h-2 bg-slate-200 rounded-full overflow-hidden hidden md:block">
+                            <div className={`h-full ${audit.score >= 80 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${audit.score}%` }}></div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-5">
+                        <Badge type="info">Completed</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      ) : (
+        <NewAuditForm onSave={(audit) => { setAudits([audit, ...audits]); setShowNew(false); }} onCancel={() => setShowNew(false)} />
+      )}
+    </div>
+  );
+};
+
+const NewAuditForm = ({ onSave, onCancel }) => {
+  const [type, setType] = useState('General Site Safety');
+  const [location, setLocation] = useState('');
+  const [checklist, setChecklist] = useState(EXPERT_CHECKLISTS['General Site Safety'].map(item => ({ text: item, status: null })));
+
+  useEffect(() => {
+    setChecklist(EXPERT_CHECKLISTS[type].map(item => ({ text: item, status: null })));
+  }, [type]);
+
+  const handleToggleStatus = (index, val) => {
+    const newChecklist = [...checklist];
+    newChecklist[index].status = val;
+    setChecklist(newChecklist);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const answered = checklist.filter(c => c.status !== null);
+    const passed = answered.filter(c => c.status === 'Pass').length;
+    const score = answered.length > 0 ? Math.round((passed / answered.length) * 100) : 0;
+    
+    onSave({
+      type,
+      location,
+      date: new Date().toLocaleDateString(),
+      score,
+      checklist
+    });
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-200">
+      <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
+        <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          Conduct Formal Audit
+          <GuidanceTooltip text="An audit is an evidence-based sampling process. Be objective. Do not mark 'Pass' unless you visually confirm compliance." />
+        </h3>
+        <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors"><XCircle size={20} /></button>
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+          <FieldWithGuidance label="Audit Standard / Domain" guidance="Select the specific domain. Different domains require different expert competencies.">
+            <select value={type} onChange={(e) => setType(e.target.value)} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700 bg-slate-50">
+              {Object.keys(EXPERT_CHECKLISTS).map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </FieldWithGuidance>
+
+          <FieldWithGuidance label="Specific Location / Zone" guidance="Be precise (e.g., 'Zone A, Level 3'). Precision aids in root cause analysis later.">
+            <input required type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Scaffold Block B" className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+          </FieldWithGuidance>
+        </div>
+
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+              Expert Verification Checklist
+              <GuidanceTooltip text="These items are based on global best practices (OSHA/NEBOSH). A 'Fail' requires immediate corrective action." />
+            </h4>
+            <span className="text-sm font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+              {checklist.filter(c => c.status !== null).length} / {checklist.length} Completed
+            </span>
+          </div>
+          <div className="space-y-4">
+            {checklist.map((item, idx) => (
+              <div key={idx} className={`flex flex-col md:flex-row md:items-center justify-between p-5 border rounded-xl transition-all ${
+                item.status === 'Pass' ? 'bg-emerald-50 border-emerald-200' :
+                item.status === 'Fail' ? 'bg-red-50 border-red-200' :
+                item.status === 'N/A' ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200 hover:border-blue-300 shadow-sm'
+              }`}>
+                <p className={`text-sm font-semibold pr-4 mb-4 md:mb-0 ${item.status ? 'text-slate-700' : 'text-slate-800'}`}>{item.text}</p>
+                <div className="flex gap-2 shrink-0 bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+                  <button type="button" onClick={() => handleToggleStatus(idx, 'Pass')} className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-1.5 transition-all ${item.status === 'Pass' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>
+                    <CheckCircle size={16} /> Pass
+                  </button>
+                  <button type="button" onClick={() => handleToggleStatus(idx, 'Fail')} className={`px-4 py-2 rounded-md text-sm font-bold flex items-center gap-1.5 transition-all ${item.status === 'Fail' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>
+                    <XCircle size={16} /> Fail
+                  </button>
+                  <button type="button" onClick={() => handleToggleStatus(idx, 'N/A')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${item.status === 'N/A' ? 'bg-slate-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>
+                    N/A
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-4 pt-6 border-t border-slate-100">
+          <button type="button" onClick={onCancel} className="px-6 py-2.5 text-slate-600 font-semibold hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
+          <button type="submit" className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 shadow-md shadow-blue-200 transition-all flex items-center gap-2">
+            Submit Audit <CheckCircle size={18} />
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+const IncidentsView = ({ incidents, setIncidents }) => {
+  const [showForm, setShowForm] = useState(false);
+
+  return (
+    <div className="animate-fadeIn">
+      {!showForm ? (
+        <>
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">Incident Management</h3>
+              <p className="text-slate-500 font-medium mt-1">Capture, analyze root causes, and establish preventive measures.</p>
+            </div>
+            <button onClick={() => setShowForm(true)} className="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-red-200 flex items-center gap-2 font-semibold transition-all hover:-translate-y-0.5">
+              <AlertTriangle size={20} /> Report Incident
+              <GuidanceTooltip text="Always report incidents within 24 hours. The goal is fact-finding, not fault-finding." />
+            </button>
+          </div>
+
+          {incidents.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300 shadow-sm">
+              <ShieldCheck className="mx-auto text-emerald-400 mb-4" size={56} />
+              <h4 className="text-xl font-bold text-slate-700">Zero Incidents Reported</h4>
+              <p className="text-slate-500 mt-2">Excellent. Maintain vigilance and proactive reporting to keep the site safe.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {incidents.map((inc, idx) => (
+                <div key={idx} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-red-500 relative hover:shadow-md transition-shadow">
+                  <div className="absolute top-6 right-6">
+                    <Badge type={inc.category.includes('LTI') ? 'danger' : 'warning'}>{inc.category}</Badge>
+                  </div>
+                  <h4 className="font-bold text-lg text-slate-800 pr-24 mb-1">{inc.title}</h4>
+                  <p className="text-sm text-slate-500 mb-4 font-medium flex items-center gap-2">
+                    {inc.date} <span className="w-1 h-1 rounded-full bg-slate-300"></span> {inc.location}
+                  </p>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Description</p>
+                      <p className="text-sm text-slate-700 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">{inc.description}</p>
+                    </div>
+                    
+                    {inc.rootCause && (
+                      <div>
+                        <p className="text-xs font-bold text-red-500 uppercase tracking-wider mb-1 flex items-center gap-1"><FileSearch size={12}/> Identified Root Cause</p>
+                        <p className="text-sm text-red-900 leading-relaxed bg-red-50 p-3 rounded-lg border border-red-100">{inc.rootCause}</p>
+                      </div>
+                    )}
+                    
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Immediate Action</p>
+                      <p className="text-sm text-slate-700 leading-relaxed border-l-2 border-slate-300 pl-3">{inc.action}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <NewIncidentForm onSave={(inc) => { setIncidents([inc, ...incidents]); setShowForm(false); }} onCancel={() => setShowForm(false)} />
+      )}
+    </div>
+  );
+};
+
+const NewIncidentForm = ({ onSave, onCancel }) => {
+  const [formData, setFormData] = useState({
+    title: '', category: 'Near Miss', location: '', description: '', action: '', rootCause: ''
+  });
+
+  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave({ ...formData, date: new Date().toLocaleString() });
+  };
+
+  const isSevere = formData.category.includes('LTI') || formData.category.includes('Medical');
+
+  return (
+    <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-200 max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
+        <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <AlertTriangle className="text-red-500" /> Report New Incident
+        </h3>
+        <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors"><XCircle size={20} /></button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <FieldWithGuidance label="Incident Title" guidance="Provide a clear, brief summary (e.g., 'Slip on spilled oil in Workshop').">
+            <input required name="title" onChange={handleChange} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all font-semibold text-slate-800" placeholder="Brief title" />
+          </FieldWithGuidance>
+          <FieldWithGuidance label="Severity Category" guidance="Near Miss: Event that *could* have caused harm. LTI: Injury causing time away from work.">
+            <select name="category" onChange={handleChange} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all font-semibold bg-slate-50 text-slate-700">
+              <option>Near Miss</option>
+              <option>First Aid Case</option>
+              <option>Medical Treatment Case</option>
+              <option>Lost Time Incident (LTI)</option>
+            </select>
+          </FieldWithGuidance>
+        </div>
+
+        <FieldWithGuidance label="Exact Location" guidance="Where did this occur? Include specific zones or equipment identifiers.">
+          <input required name="location" onChange={handleChange} className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all" placeholder="e.g., Warehouse Loading Bay 2" />
+        </FieldWithGuidance>
+
+        <FieldWithGuidance label="Detailed Factual Description" guidance="State facts only. Who, what, when, where, and how. Do NOT state 'why' here.">
+          <textarea required name="description" onChange={handleChange} rows="3" className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all" placeholder="Describe the sequence of events objectively..."></textarea>
+        </FieldWithGuidance>
+
+        <FieldWithGuidance label="Immediate Corrective Action" guidance="What was done IMMEDIATELY to stop further harm? (e.g., 'Area barricaded, injured person sent to clinic').">
+          <textarea required name="action" onChange={handleChange} rows="2" className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all" placeholder="Steps taken to secure the scene..."></textarea>
+        </FieldWithGuidance>
+
+        {/* Dynamic 5 Whys Section for Severe Incidents */}
+        {isSevere && (
+          <div className="bg-red-50 p-6 rounded-2xl border border-red-200 mt-8">
+            <h4 className="text-red-800 font-bold flex items-center gap-2 mb-2">
+              <FileSearch size={18} /> Root Cause Analysis (Mandatory for LTI/MTC)
+            </h4>
+            <p className="text-sm text-red-600 mb-4">You have selected a high-severity category. Please provide preliminary root cause findings using the '5 Whys' methodology.</p>
+            <FieldWithGuidance label="Identified Root Cause" guidance="Why did this happen? Keep asking 'Why?' until you reach a systemic failure (e.g., lack of training, missing procedure).">
+              <textarea required name="rootCause" onChange={handleChange} rows="3" className="w-full p-3 border border-red-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none transition-all" placeholder="State the fundamental system or process failure..."></textarea>
+            </FieldWithGuidance>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-4 pt-6 border-t border-slate-100">
+          <button type="button" onClick={onCancel} className="px-6 py-2.5 text-slate-600 font-semibold hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
+          <button type="submit" className="px-6 py-2.5 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 shadow-md shadow-red-200 transition-all flex items-center gap-2">
+            Submit Official Report <Send size={18} />
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+const PTWView = ({ permits, setPermits }) => {
+  const [showForm, setShowForm] = useState(false);
+
+  return (
+    <div className="animate-fadeIn">
+      {!showForm ? (
+        <>
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">Permit to Work (PTW)</h3>
+              <p className="text-slate-500 font-medium mt-1">Strict control system for high-risk, non-routine activities.</p>
+            </div>
+            <button onClick={() => setShowForm(true)} className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-amber-200 flex items-center gap-2 font-semibold transition-all hover:-translate-y-0.5">
+              <FileSignature size={20} /> Authorize Permit
+              <GuidanceTooltip text="PTW is a legal document. It proves high risk tasks were assessed and controls agreed upon before work started." />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {permits.map((p, i) => (
+              <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:shadow-md transition-shadow">
+                <div className="flex-1">
+                  <Badge type={p.type.includes('Hot') ? 'danger' : p.type.includes('Confined') ? 'purple' : 'info'}>
+                    {p.type}
+                  </Badge>
+                  <h4 className="font-bold text-lg text-slate-800 mt-3">{p.task}</h4>
+                  <p className="text-sm font-medium text-slate-500 mt-1">Loc: {p.location}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col items-end min-w-[160px]">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</span>
+                  <span className="inline-flex items-center gap-1.5 text-emerald-600 font-bold text-sm bg-emerald-100 px-3 py-1 rounded-md border border-emerald-200 shadow-sm">
+                    <CheckCircle size={14} /> ACTIVE
+                  </span>
+                  <p className="text-xs font-medium text-slate-500 mt-2 text-right">Valid Until:<br/><span className="text-slate-800 font-bold">{p.validUntil}</span></p>
+                </div>
+              </div>
+            ))}
+            {permits.length === 0 && (
+              <div className="col-span-full text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300 shadow-sm">
+                <FileSignature className="mx-auto text-slate-300 mb-4" size={56} />
+                <h4 className="text-xl font-bold text-slate-700">No Active Permits</h4>
+                <p className="text-slate-500 mt-2">All high-risk operations are currently suspended or not required.</p>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-200 max-w-3xl mx-auto">
+          <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
+            <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+              <FileSignature className="text-amber-500" /> Authorize New Permit
+            </h3>
+            <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors"><XCircle size={20} /></button>
+          </div>
+
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            setPermits([{ type: fd.get('type'), task: fd.get('task'), location: fd.get('loc'), validUntil: 'Today 18:00' }, ...permits]);
+            setShowForm(false);
+          }} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FieldWithGuidance label="Permit Type" guidance="Different types require different competent signatories (e.g. Confined Space needs Authorized Gas Tester).">
+                <select name="type" className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none font-semibold bg-slate-50">
+                  <option>Hot Work (Welding, Grinding)</option>
+                  <option>Confined Space Entry</option>
+                  <option>Working at Height (&gt;1.8m)</option>
+                  <option>Critical Lifting Operation</option>
+                  <option>LOTO (Lockout/Tagout)</option>
+                </select>
+              </FieldWithGuidance>
+              <FieldWithGuidance label="Specific Task Scope" guidance="Exactly what is being done? Keep it highly specific to prevent scope creep.">
+                <input required name="task" className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none" placeholder="e.g., Welding pipe joint section 4" />
+              </FieldWithGuidance>
+            </div>
+            
+            <FieldWithGuidance label="Exact Location" guidance="Where is this happening?">
+              <input required name="loc" className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none" placeholder="e.g., Basement Level 2, Pump Room" />
+            </FieldWithGuidance>
+            
+            <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 mt-8">
+              <div className="flex items-center gap-2 text-amber-800 font-extrabold mb-3 text-lg">
+                <AlertTriangle size={20} /> Legal Acknowledgment
+              </div>
+              <p className="text-sm text-amber-700 leading-relaxed font-medium">By issuing this permit, I confirm that a Job Safety Analysis (JSA) has been conducted, hazards identified, controls are currently in place at the physical worksite, and all involved personnel have been briefed.</p>
+              <div className="mt-4 flex items-center gap-3">
+                <input type="checkbox" required className="w-5 h-5 text-amber-600 rounded border-gray-300 focus:ring-amber-500" />
+                <span className="text-sm font-bold text-amber-900">I verify site conditions personally.</span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-4 pt-6 border-t border-slate-100">
+              <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2.5 text-slate-600 font-semibold hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
+              <button type="submit" className="px-6 py-2.5 bg-amber-500 text-white font-semibold rounded-xl hover:bg-amber-600 shadow-md shadow-amber-200 transition-all flex items-center gap-2">
+                Authorize & Issue <CheckCircle size={18} />
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const GuidanceView = () => {
+  return (
+    <div className="max-w-4xl mx-auto space-y-10 animate-fadeIn pb-12">
+      <div className="text-center space-y-4 py-8 border-b border-slate-200">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-xl shadow-indigo-200 mb-2">
+          <BookOpen size={40} />
+        </div>
+        <h2 className="text-4xl font-extrabold text-slate-800 tracking-tight">Master Safety Guidance</h2>
+        <p className="text-lg text-slate-500 font-medium max-w-2xl mx-auto">The 15-Year Expert's Manual to deploying this Application effectively in Saudi Arabia and International Markets.</p>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-6 text-white">
+          <h3 className="text-2xl font-bold flex items-center gap-3"><ShieldCheck size={28}/> Principle: The Hierarchy of Controls</h3>
+          <p className="text-indigo-100 mt-2 font-medium">The golden rule of risk management. Always apply controls from top to bottom.</p>
+        </div>
+        <div className="p-8">
+          <ul className="space-y-6">
+            <li className="flex items-start gap-4">
+              <span className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-lg shrink-0">1</span> 
+              <div>
+                <strong className="text-lg text-slate-800 block mb-1">Elimination (Most Effective)</strong>
+                <p className="text-slate-600">Physically remove the hazard completely. Example: Do work at ground level instead of at height.</p>
+              </div>
+            </li>
+            <li className="flex items-start gap-4">
+              <span className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-black text-lg shrink-0">2</span> 
+              <div>
+                <strong className="text-lg text-slate-800 block mb-1">Substitution</strong>
+                <p className="text-slate-600">Replace the hazard with something safer. Example: Use a non-toxic chemical instead of a toxic one.</p>
+              </div>
+            </li>
+            <li className="flex items-start gap-4">
+              <span className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-black text-lg shrink-0">3</span> 
+              <div>
+                <strong className="text-lg text-slate-800 block mb-1">Engineering Controls</strong>
+                <p className="text-slate-600">Isolate people from the hazard. Example: Machine guards, sound enclosures, ventilation systems.</p>
+              </div>
+            </li>
+            <li className="flex items-start gap-4">
+              <span className="w-10 h-10 rounded-xl bg-orange-100 text-orange-700 flex items-center justify-center font-black text-lg shrink-0">4</span> 
+              <div>
+                <strong className="text-lg text-slate-800 block mb-1">Administrative Controls</strong>
+                <p className="text-slate-600">Change the way people work. Example: Training, job rotation, standard operating procedures (SOPs).</p>
+              </div>
+            </li>
+            <li className="flex items-start gap-4">
+              <span className="w-10 h-10 rounded-xl bg-red-100 text-red-700 flex items-center justify-center font-black text-lg shrink-0">5</span> 
+              <div>
+                <strong className="text-lg text-slate-800 block mb-1">PPE (Last Line of Defense)</strong>
+                <p className="text-slate-600">Protect the worker with equipment. Hard hats, harnesses, respirators. It does not eliminate the hazard!</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <GuidanceCard 
+          icon={<ClipboardList className="text-blue-500" size={28} />}
+          title="How to Audit Properly"
+          text="An audit is not a policing exercise; it is an objective measurement of compliance against a standard. Engage with workers. Do not conduct 'desk audits' from your office."
+        />
+        <GuidanceCard 
+          icon={<FileSignature className="text-amber-500" size={28} />}
+          title="PTW Golden Rules"
+          text="A Permit to Work is void if conditions change. If a fire alarm sounds, the Hot Work permit is instantly cancelled and must be re-issued. Inspect the physical location first."
+        />
+        <GuidanceCard 
+          icon={<Layers className="text-purple-500" size={28} />}
+          title="Effective JSAs"
+          text="A generic JSA is useless. Break down the specific task step-by-step. Involve the workers who will actually do the job in writing the JSA. They know the hidden hazards best."
+        />
+        <GuidanceCard 
+          icon={<Bot className="text-indigo-500" size={28} />}
+          title="Leveraging AI Chatbot"
+          text="The AI (bottom right) is connected to a Gemini intelligence model. Ask it complex regulatory questions like 'What is the OSHA standard for trench shoring?'"
+        />
+      </div>
+    </div>
+  );
+};
+
+const GuidanceCard = ({ icon, title, text }) => (
+  <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 hover:shadow-lg transition-all hover:-translate-y-1">
+    <div className="flex items-center gap-4 mb-4">
+      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 shadow-inner">{icon}</div>
+      <h4 className="text-xl font-bold text-slate-800">{title}</h4>
+    </div>
+    <p className="text-slate-600 leading-relaxed font-medium">{text}</p>
+  </div>
+);
+
+const AIChatbot = ({ isChatOpen, setIsChatOpen }) => {
+  const [messages, setMessages] = useState([
+    { role: 'ai', text: 'Hello! I am your AI HSE Director. Powered by Gemini, I am trained on OSHA, NEBOSH, and global safety standards. How can I assist your operations today?' }
+  ]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(scrollToBottom, [messages, isChatOpen, isTyping]);
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    const userText = input;
+    const newMessages = [...messages, { role: 'user', text: userText }];
+    setMessages(newMessages);
+    setInput('');
+    setIsTyping(true);
+
+    try {
+      // In Canvas, an empty API key string automatically utilizes the internal auth mechanism
+      const apiKey = ""; 
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      
+      const payload = {
+        contents: newMessages.map(m => ({
+          role: m.role === 'ai' ? 'model' : 'user',
+          parts: [{ text: m.text }]
+        })),
+        systemInstruction: {
+          parts: [{ text: "You are an elite, highly experienced Occupational Health and Safety (HSE) Director with 15 years of field and corporate experience. You specialize in OSHA, NEBOSH, and Saudi Arabian labor laws and construction standards. Provide pragmatic, actionable, and legally sound advice. Structure your answers clearly with bullet points where necessary. Be professional, authoritative, and helpful to the safety officer asking you questions." }]
+        }
+      };
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      
+      if (data.candidates && data.candidates[0].content.parts[0].text) {
+        setMessages([...newMessages, { role: 'ai', text: data.candidates[0].content.parts[0].text }]);
+      } else {
+        throw new Error("Invalid response format");
+      }
+    } catch (error) {
+      console.error("AI Error:", error);
+      setMessages([...newMessages, { role: 'ai', text: "⚠️ Secure connection to Intelligence Server failed. Please check your network or try again." }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Chat FAB */}
+      <button 
+        onClick={() => setIsChatOpen(!isChatOpen)}
+        className={`fixed bottom-8 right-8 w-16 h-16 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 z-50 hover:scale-110
+          ${isChatOpen ? 'bg-slate-800 text-white' : 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-indigo-300/50'}
+        `}
+      >
+        {isChatOpen ? <XCircle size={32} /> : <Bot size={32} />}
+      </button>
+
+      {/* Chat Window */}
+      {isChatOpen && (
+        <div className="fixed bottom-28 right-8 w-[400px] h-[600px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col z-50 overflow-hidden animate-fadeIn">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-indigo-600 to-blue-700 p-5 text-white flex justify-between items-center shadow-md z-10">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                <Bot size={24} />
+              </div>
+              <div>
+                <h4 className="font-bold text-lg leading-tight">AI Safety Expert</h4>
+                <p className="text-xs text-indigo-200 font-medium flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Online - Gemini Powered
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 p-5 overflow-y-auto bg-slate-50 space-y-5">
+            {messages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {msg.role === 'ai' && <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center mr-2 shrink-0"><Bot size={16} className="text-indigo-600"/></div>}
+                <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
+                  msg.role === 'user' 
+                    ? 'bg-indigo-600 text-white rounded-tr-sm shadow-md' 
+                    : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm shadow-sm'
+                }`}>
+                  {/* Basic parsing for markdown-like bolding if returned by Gemini */}
+                  <span dangerouslySetInnerHTML={{ __html: msg.text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }} />
+                </div>
+              </div>
+            ))}
+            
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center mr-2 shrink-0"><Bot size={16} className="text-indigo-600"/></div>
+                <div className="bg-white border border-slate-200 p-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
+                  <Loader2 size={16} className="text-indigo-500 animate-spin" />
+                  <span className="text-xs text-slate-500 font-medium">Analyzing safety standards...</span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <form onSubmit={handleSend} className="p-4 bg-white border-t border-slate-200">
+            <div className="relative flex items-center">
+              <input 
+                type="text" 
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask about regulations, risk, or procedures..." 
+                className="w-full pl-4 pr-12 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                disabled={isTyping}
+              />
+              <button 
+                type="submit" 
+                disabled={!input.trim() || isTyping}
+                className="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 transition-colors shadow-md"
+              >
+                <Send size={18} />
+              </button>
+            </div>
+            <p className="text-[10px] text-center text-slate-400 mt-2">AI-generated advice should be verified with local regulations.</p>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
